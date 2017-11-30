@@ -45,7 +45,7 @@ Mesh::Mesh( DM* input_da, int elResX, int elResY, double xLength, double yLength
   }
 
   /* build element node table; ordering
-   * 2 ------ 3
+   * 3 ------ 2
    * |        |
    * |        |
    * 0 ------ 1
@@ -54,8 +54,8 @@ Mesh::Mesh( DM* input_da, int elResX, int elResY, double xLength, double yLength
     for( el_i = 0 ; el_i < gElCountXYZ[0] ; el_i++ ) {
       elNodeArray[el_i+el_j*gElCountXYZ[0]][0] = ( el_j*gNodeCountXYZ[0] + el_i );
       elNodeArray[el_i+el_j*gElCountXYZ[0]][1] = ( el_j*gNodeCountXYZ[0] + el_i+1 );
-      elNodeArray[el_i+el_j*gElCountXYZ[0]][2] = ( (el_j+1)*gNodeCountXYZ[0] + el_i );
-      elNodeArray[el_i+el_j*gElCountXYZ[0]][3] = ( (el_j+1)*gNodeCountXYZ[0] + el_i+1 );
+      elNodeArray[el_i+el_j*gElCountXYZ[0]][3] = ( (el_j+1)*gNodeCountXYZ[0] + el_i );
+      elNodeArray[el_i+el_j*gElCountXYZ[0]][2] = ( (el_j+1)*gNodeCountXYZ[0] + el_i+1 );
     }
   }
 
@@ -175,8 +175,8 @@ void Mesh::EvaluateShapeFunc( const double *pos, double *Ni ) {
 
   Ni[0] = 0.25 * (1-xi) * (1-eta);
   Ni[1] = 0.25 * (1+xi) * (1-eta);
-  Ni[3] = 0.25 * (1+xi) * (1+eta);
-  Ni[2] = 0.25 * (1-xi) * (1+eta);
+  Ni[2] = 0.25 * (1+xi) * (1+eta);
+  Ni[3] = 0.25 * (1-xi) * (1+eta);
 }
 
 void Mesh::Evaluate_dNxFunc( const double *pos, double dNi_dx[][4] ) {
@@ -187,14 +187,14 @@ void Mesh::Evaluate_dNxFunc( const double *pos, double dNi_dx[][4] ) {
   /** derivs with repect to xi */
   dNi_dx[0][0] = -0.25 * (1-eta);
   dNi_dx[0][1] =  0.25 * (1-eta);
-  dNi_dx[0][3] =  0.25 * (1+eta);
-  dNi_dx[0][2] = -0.25 * (1+eta);
+  dNi_dx[0][2] =  0.25 * (1+eta);
+  dNi_dx[0][3] = -0.25 * (1+eta);
 
   /** derivs with repect to eta */
   dNi_dx[1][0] = -0.25 * (1-xi);
   dNi_dx[1][1] = -0.25 * (1+xi);
-  dNi_dx[1][3] =  0.25 * (1+xi);
-  dNi_dx[1][2] =  0.25 * (1-xi);
+  dNi_dx[1][2] =  0.25 * (1+xi);
+  dNi_dx[1][3] =  0.25 * (1-xi);
 }
 
 void Mesh::Evaluate_GNxFunc( const double *pos, const int elID, double GNx[][4], double *detJac ){
