@@ -45,7 +45,8 @@ class Mesh {
 	int gNodeCountXYZ[3];
   double lengthXYZ[3];
 	int gElCountXYZ[3];
-	int elCount;
+	int gElCount;
+  int elCount;
 	int nodesPerEl;
 	int elementNodeCount;
 	int dim;

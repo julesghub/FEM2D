@@ -11,9 +11,7 @@ Mesh::Mesh( DM* input_da, int elResX, int elResY, double xLength, double yLength
   DMDASetUniformCoordinates(da[0],0.0,1.0,0.0,1.0,0.0,1.0); // unused dimension isn't used
 
   DMDAGetElements( da[0], &lElNum, &lNodeNum, &e_n_graph );
-  local_elements = (int)lElNum;
-
-  DMDARestoreElements(da[0], &lElNum, &lNodeNum, &e_n_graph);
+  elCount = (int)lElNum;
 
   int ijk[3], widths[3], rank;
   MPI_Comm_rank(PETSC_COMM_WORLD,&rank);
@@ -33,10 +31,10 @@ Mesh::Mesh( DM* input_da, int elResX, int elResY, double xLength, double yLength
   gNodeCountXYZ[1] = gElCountXYZ[1]+1;
   gNodeCountXYZ[2] = 0;
 
-  elCount = gElCountXYZ[0] * gElCountXYZ[1];
+  gElCount = gElCountXYZ[0] * gElCountXYZ[1];
   dim = 2;
   if( gElCountXYZ[2] != 0 ) {
-    elCount *= gElCountXYZ[2];
+    gElCount *= gElCountXYZ[2];
     dim = 3;
   }
 
@@ -74,6 +72,8 @@ Mesh::Mesh( DM* input_da, int elResX, int elResY, double xLength, double yLength
   gCoords[1][0] =  1*oneOnSqrt3; gCoords[1][1] = -1*oneOnSqrt3;
   gCoords[2][0] =  1*oneOnSqrt3; gCoords[2][1] =  1*oneOnSqrt3;
   gCoords[3][0] = -1*oneOnSqrt3; gCoords[3][1] =  1*oneOnSqrt3;
+
+  DMDARestoreElements(da[0], &lElNum, &lNodeNum, &e_n_graph);
 
 }
 
@@ -209,6 +209,7 @@ void Mesh::Evaluate_GNxFunc( const double *pos, const int elID, double GNx[][4],
 
   /** get the local derivative of this position */
   Evaluate_dNxFunc( pos, GNi );
+  
 
   for( node_I = 0 ; node_I < nodesPerEl ; node_I++ ) {
     NodeCoords( elNodeArray[elID][node_I],  nodeCoord);
