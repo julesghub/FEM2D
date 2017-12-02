@@ -2,6 +2,9 @@
 
 #include <petsc.h>
 #include <petscdm.h>
+#include "petscsys.h"   
+#include "petscviewerhdf5.h"
+
 
 #include "Mesh.h"
 #include "Field.h"
@@ -39,109 +42,132 @@ void SolveCN(
     Vec *phi,
     int num_timeSteps, double dt );
 
+double max_double( double a, double b ){
+  return (a > b) ? a : b; 
+}
+
+double min_double( double a, double b ){
+  return (a < b) ? a : b; 
+}
+
 int main(int argc, char **argv) {
 
+  DM da;
   Mat M, K;
   Vec phi, lumped_mm;
 
-  double tmpMat[16];
-  int res[] = {10,10};
-  int nodeCount, num_timeSteps;
-  int resX, resY; // useless stuff
-  double dt, factor, nodeSep[3];
+  double max[] = {1,1};
+  double dt, minSep;
+  double tmpMem[16];
+  int    elRes[] = {10,10};
+  int    num_timeSteps;
+  int    rank, nProcs;
+  int    ijk_sizes[3], n_i;
+  
   PetscBool flg;
-  DM da;
-  int rank;
-
   PetscLogDouble petscMem;
-
+  
+  // start up petsc
   PetscInitialize( &argc, &argv, (char*)0, help );
   MPI_Comm_rank(PETSC_COMM_WORLD,&rank);
-
-  // get num_timeSteps options
+  MPI_Comm_size(PETSC_COMM_WORLD,&nProcs);
+  
+  // get cmd args 
   PetscOptionsGetInt(PETSC_NULL, PETSC_NULL, "-n", &num_timeSteps, &flg);
-  if( !flg ) num_timeSteps = 1;
+  if( !flg ) num_timeSteps = 1; 
+  PetscOptionsGetScalar(PETSC_NULL, PETSC_NULL, "-max_x", &max[0], &flg);
+  PetscOptionsGetScalar(PETSC_NULL, PETSC_NULL, "-max_y", &max[1], &flg);
 
+  // create dm
   DMDACreate2d(PETSC_COMM_WORLD,
                DM_BOUNDARY_NONE,DM_BOUNDARY_NONE, /* boundary types in x/y */
                DMDA_STENCIL_BOX,                  /* neighbour shape */
-               res[0]+1, res[1]+1,                /* grid size */
+               elRes[0]+1, elRes[1]+1,            /* grid size */
                PETSC_DECIDE,PETSC_DECIDE,         /* nprocs in each direction */
                1,1,                               /* dof and width */
                NULL, NULL, &da);                  /* nodes along x & y */
-
-  DMSetUp(da);
-  //
-  // DMDASetUniformCoordinates(da,0.0,1.0,0.0,1.0,0.0,1.0); // unused dimension isn't used
-  resX = res[0];
-  resY = res[1];
-
-  DMCreateMatrix(da, &M);
-  DMCreateMatrix(da, &K);
-
-  MatCreateVecs(M,&phi, NULL);
-  MatCreateVecs(M,&lumped_mm, NULL);
-  Mesh* mesh = new Mesh( &da, resX, resY, 1.0, 1.0 );
+  DMSetFromOptions(da);
+  DMSetUp(da); // MUST CALL!
+  DMDAGetInfo(da,0,&ijk_sizes[0],&ijk_sizes[1],&ijk_sizes[2],0,0,0,0,0,0,0,0,0);
+  int _lElNum, lElNum, _nodesPerEl, nodesPerEl;
+  const int *_e_n_graph;
+  DMDAGetElements( da, &_lElNum, &_nodesPerEl, &_e_n_graph );
+  lElNum = _lElNum;
+  nodesPerEl = _nodesPerEl;
+  DMDARestoreElements(da, &_lElNum, &_nodesPerEl, &_e_n_graph);
+  
+  Mesh* mesh = new Mesh( &da, ijk_sizes[0], ijk_sizes[1], max[0], max[1] );
   Field* field   = new Field(mesh, 1);
   Matrix* matrix = new Matrix(mesh, field, "matrix1");
 
-  int lElNum = mesh->GetLocalElementSize();
   PetscSynchronizedPrintf(PETSC_COMM_WORLD, "I'm %d: I have %d local elements\n", rank, lElNum);
   PetscSynchronizedFlush(PETSC_COMM_WORLD, NULL);
 
-  mesh->GetNodeCount( &nodeCount );
-  mesh->GetNodeSep( nodeSep );
-  mesh->Print();
-
-  dt = 0.5*(nodeSep[0]*nodeSep[0]); /* assume isotropic node seperation */
-  factor = dt ;
-  printf("dt = %f\n", dt );
-  printf("factor = %f\n", factor );
+  // calculate timesetp
+  minSep = min_double( (max[0]/ijk_sizes[0]),  (max[1]/ijk_sizes[1]) );
+  dt = 0.5*(minSep*minSep);
 
   PetscMallocGetCurrentUsage( &petscMem );
   printf("*****\nPetscMalloc, before run %f\n*******\n", petscMem );
-
-  /* make M */
+  
+  // Make the Matrices
+  DMCreateMatrix(da, &M);
+  DMCreateMatrix(da, &K);
   MatSetFromOptions(M); MatSetUp(M);
   MatSetFromOptions(K); MatSetUp(K);
-
+  
+  /** 2) assemble a phi */
+  MatCreateVecs(M,&phi, NULL);
+  PetscObjectSetName((PetscObject)phi, "field");
+  VecSetFromOptions( phi );
+  VecScale( phi, 0 );
+  VecDuplicate( phi, &lumped_mm );  
   /* assemble a laplacian matrix */
   PetscInt nodeList[4];
-  int elNum;
-  mesh->GetElementCount( &elNum );
-
-  /* assemble M */
-  for( int el_i = 0 ; el_i < elNum ; el_i++ ) {
+    
+  /* assemble across elements */
+  for( int el_i = 0 ; el_i < lElNum ; el_i++ ) {
     mesh->GetElementNodes(el_i, nodeList);
-    matrix->assembleLocalMassMatrix( el_i, tmpMat );
-    MatSetValues( M, 4, nodeList, 4, nodeList, tmpMat, ADD_VALUES );
 
-    matrix->assembleLaplacian( el_i, tmpMat );
-    MatSetValues( K, 4, nodeList, 4, nodeList, tmpMat, ADD_VALUES );
+    matrix->assembleLocalMassMatrix( el_i, tmpMem );
+    MatSetValuesLocal(M, 4, nodeList, 4, nodeList, tmpMem, ADD_VALUES );
+    
+    matrix->assembleLaplacian( el_i, tmpMem );
+    MatSetValuesLocal( K, 4, nodeList, 4, nodeList, tmpMem, ADD_VALUES );
+  
+    matrix->assembleLumpedMassMatrix( el_i, tmpMem );
+    VecSetValuesLocal( lumped_mm, 4, nodeList, tmpMem, ADD_VALUES );
+  
   }
   MatAssemblyBegin( M ,MAT_FINAL_ASSEMBLY); MatAssemblyEnd( M,MAT_FINAL_ASSEMBLY);
   MatAssemblyBegin( K ,MAT_FINAL_ASSEMBLY); MatAssemblyEnd( K,MAT_FINAL_ASSEMBLY);
-
-  /** 2) assemble a phi */
-  VecSetFromOptions( phi );
-  VecScale( phi, 0 ); VecAssemblyBegin(phi); VecAssemblyEnd(phi);
-
-  /* assemble lumped_mm */
-  VecDuplicate( phi, &lumped_mm );
-  double tmpVec[4];
-  for( int el_i = 0 ; el_i < elNum ; el_i++ ) {
-    mesh->GetElementNodes(el_i, nodeList );
-    matrix->assembleLumpedMassMatrix( el_i, tmpVec );
-    VecSetValues( lumped_mm, 4, nodeList, tmpVec, ADD_VALUES );
-  }
   VecAssemblyBegin(lumped_mm); VecAssemblyEnd(lumped_mm);
-//
-  /** 3) define BC condition for phi */
-  // set bottom wall to 1
-  field->SetBCDof_OnWall( 1, 0, 1 );
-  // // set top wall to 0
-  field->SetBCDof_OnWall( 1, resY, 0.1 );
-  field->MapDirichletIntoVec( &phi );
+
+  // build dirichlet bc indices using ao
+  PetscInt *bc_global_id, appId;
+  PetscScalar *bcVals;
+  PetscMalloc1(2*ijk_sizes[0], &bc_global_id);
+  PetscMalloc1(2*ijk_sizes[0], &bcVals);
+  for( n_i=0; n_i<ijk_sizes[0]; n_i++ ){
+    bc_global_id[n_i] = n_i;
+    bcVals[n_i] = 1;
+  }
+  for( n_i=0; n_i<ijk_sizes[0]; n_i++ ){
+    appId = ijk_sizes[0]*(ijk_sizes[1]-1)+n_i;
+    bc_global_id[ijk_sizes[0]+n_i] = appId;
+    bcVals[ijk_sizes[0]+n_i] = 0.1;
+  }
+  AO ao;
+  DMDAGetAO(da,&ao);
+  AOApplicationToPetsc(ao, 2*ijk_sizes[0], bc_global_id);
+  VecSetValues(phi, 2*ijk_sizes[0], bc_global_id, bcVals, INSERT_VALUES);
+  VecAssemblyBegin(phi); VecAssemblyEnd(phi);
+  
+  // copy dirichlet bc info to fields, used in solvers
+  field->SetBCInfo(2*ijk_sizes[0], bc_global_id, bcVals);
+  
+  PetscFree(bc_global_id);
+  PetscFree(bcVals);
 //
 // /* Need a very small timestep for Euler_FullMM. ~0.05
 //   SolveEuler_FullMM( &field, &K, &M, &lumped_mm, &phi, num_timeSteps, dt );
@@ -154,20 +180,55 @@ int main(int argc, char **argv) {
 //   // Seems stable
   SolveCN( field, &K, &M, &phi, num_timeSteps, dt );
 //
-// #ifdef DEBUG_PRINT
-// #endif
-  field->MapVec2Dof( &phi );
-    // printf("\n\nphi\n"); VecView( phi, PETSC_VIEWER_STDOUT_SELF );
-  char filename[100];
-  snprintf( filename, 100, "finalTemp.dat" );
-  field->gnuplot(filename);
+
+  // Generate gnuplot with sequential writes
+  Vec xy;
+  DMGetCoordinates(da,&xy);
+  FILE *oFile=NULL;
+  int number = 1;
+  if (rank != 0) {
+    // blocking mpi receive
+    MPI_Recv( &number, 1, MPI_INT, rank-1, 0, MPI_COMM_WORLD, NULL );
+    oFile = fopen("field.out", "a");
+  } else {
+    oFile = fopen("field.out", "w");
+  }
+  
+  int i,nLocal;
+  double *coords, *vals;
+  VecGetLocalSize(phi,&nLocal);
+  VecGetArray(xy,&coords);
+  // DMDAGetCoordinateArray(da, coords );
+  VecGetArray(phi, &vals);
+  for( i=0; i<nLocal; i++) {
+    fprintf(oFile, "%f %f %f\n", coords[2*i], coords[2*i+1], vals[i]);
+  }
+  VecRestoreArray(xy,&coords);
+  VecRestoreArray(phi,&vals);
+  
+  fclose(oFile);
+  
+  if (rank != nProcs-1) MPI_Send(&number, 1, MPI_INT, rank+1, 0, MPI_COMM_WORLD);
+
+  // PetscViewer viewer;
+  // PetscViewerHDF5Open(PETSC_COMM_WORLD,"field.h5",FILE_MODE_WRITE,&viewer);
+  // PetscViewerSetFromOptions(viewer);
+  // VecView(phi, viewer);
+  // PetscViewerDestroy(&viewer);
+  // 
+  // PetscViewerHDF5Open(PETSC_COMM_WORLD,"coords.h5",FILE_MODE_WRITE,&viewer);
+  // PetscViewerSetFromOptions(viewer);
+  // VecView(xy, viewer);
+  // PetscViewerDestroy(&viewer);
 
   delete matrix;
   delete field;
   delete mesh;
 
-  VecDestroy(&lumped_mm); VecDestroy(&phi);
-  MatDestroy(&M); MatDestroy(&K);
+  VecDestroy(&lumped_mm); 
+  VecDestroy(&phi);
+  MatDestroy(&M); 
+  MatDestroy(&K);
   DMDestroy(&da);
 
 
@@ -414,6 +475,8 @@ void SolveCN( Field* field, Mat *K, Mat *M, Vec *phi, int num_timeSteps, double 
 
   field->GetBCInfo( &numBC, &nodeBCList, &nodeBCValue );
   VecSetValues( *phi, numBC, nodeBCList, nodeBCValue, INSERT_VALUES );
+  VecAssemblyBegin(*phi); VecAssemblyEnd(*phi);
+  
   MatZeroRows( A, numBC, nodeBCList, 1.0, *phi, f_k);
   // CorrectVectorForDirchletBC( &A, phi, field, &f_k );
   //MatAssemblyBegin( A, MAT_FINAL_ASSEMBLY); MatAssemblyEnd( A, MAT_FINAL_ASSEMBLY);
@@ -447,7 +510,7 @@ void SolveCN( Field* field, Mat *K, Mat *M, Vec *phi, int num_timeSteps, double 
     KSPSolve( ksp, f_rhs, *phi );
 
   }
-  VecDestroy( &f_k ); VecDestroy(&f_rhs);
+  VecDestroy( &f_k ); VecDestroy(&f_rhs); VecDestroy(&f_mm);
   MatDestroy( &A ); MatDestroy(&B);
   KSPDestroy( &ksp );
 }

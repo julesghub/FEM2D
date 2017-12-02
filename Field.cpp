@@ -107,6 +107,14 @@ void Field::SetBCDof_OnWall( int planeAxis, int minMax, const double wallBC ) {
     }
   }
 }
+void Field::SetBCInfo(int numBCs, int *bcList, double *bcValues) {
+  _numBCs = numBCs;
+  int i;
+  for( i=0; i<_numBCs; i++ ){
+    _bcList[i]   = bcList[i];
+    _bcValues[i] = bcValues[i];
+  }
+}
 
 void Field::GetBCInfo(int *numBCs, int **bcList, double **bcValues) {
   *numBCs = _numBCs;
@@ -130,23 +138,50 @@ void Field::MapVec2Dof( Vec *myVec ) {
 }
 
 void Field::gnuplot( const char *filename) {
-  int num_node, node_i;
-  double coord[3] = {0,0,0};
-  FILE *filePtr = NULL;
-
-  filePtr = fopen( filename, "w" );
-  if( filePtr == NULL ) {
-    printf( "\n\nError opening %s, in %s\n\n", filename, __FILE__ ); assert(0);
-  }
-
-  mesh->GetNodeCount( &num_node );
-
-  for( node_i = 0 ; node_i < num_node ; node_i++ ) {
-    mesh->NodeCoords( node_i, coord );
-    // fprintf( filePtr, "%g %g %g %g\n", coord[0], coord[1], coord[2], _dof[node_i] );
-    fprintf( filePtr, "%g %g %g\n", coord[0], coord[1], _dof[node_i] );
-
-  }
-
-  fclose( filePtr );
+//   
+//   // Generate gnuplot with sequential writes
+//   FILE *oFile=NULL;
+//   int number = 1;
+//   if (rank != 0) {
+//     // blocking mpi receive
+//     MPI_Recv( &number, 1, MPI_INT, rank-1, 0, MPI_COMM_WORLD, NULL );
+//     oFile = fopen("field.out", "a");
+//   } else {
+//     oFile = fopen("field.out", "w");
+//   }
+//   
+//   int i,nLocal;
+//   double *coords, *vals;
+//   VecGetLocalSize(phi,&nLocal);
+//   VecGetArray(xy,&coords);
+//   VecGetArray(phi, &vals);
+//   for( i=0; i<nLocal; i++) {
+//     fprintf(oFile, "%f %f %f\n", coords[2*i], coords[2*i+1], vals[i]);
+//   }
+//   VecRestoreArray(xy,&coords);
+//   VecRestoreArray(phi,&vals);
+//   
+//   fclose(oFile);
+//   MPI_Send(&number, 1, MPI_INT, 1, 0, MPI_COMM_WORLD);
 }
+  //   
+  // int num_node, node_i;
+  // double coord[3] = {0,0,0};
+  // FILE *filePtr = NULL;
+  // 
+  // filePtr = fopen( filename, "w" );
+  // if( filePtr == NULL ) {
+  //   printf( "\n\nError opening %s, in %s\n\n", filename, __FILE__ ); assert(0);
+  // }
+  // 
+  // mesh->GetNodeCount( &num_node );
+  // 
+  // for( node_i = 0 ; node_i < num_node ; node_i++ ) {
+  //   mesh->NodeCoords( node_i, coord );
+  //   // fprintf( filePtr, "%g %g %g %g\n", coord[0], coord[1], coord[2], _dof[node_i] );
+  //   fprintf( filePtr, "%g %g %g\n", coord[0], coord[1], _dof[node_i] );
+  // 
+  // }
+  // 
+  // fclose( filePtr );
+// }

@@ -15,6 +15,7 @@ class Field {
 	/* map dirichlet bc into vector */
 	void MapDirichletIntoVec( Vec *vec );
 	void SetBCDof_OnWall( int planeAxis, int minMax, const double wallBC );
+  void SetBCInfo(int numBcs, int* bcList, double *bcValues);
 
 	private:
   int    *_bcList;

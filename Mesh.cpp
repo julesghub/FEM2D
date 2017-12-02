@@ -8,16 +8,10 @@ Mesh::Mesh( DM* input_da, int elResX, int elResY, double xLength, double yLength
 
   da = input_da;
 
-  DMDASetUniformCoordinates(da[0],0.0,1.0,0.0,1.0,0.0,1.0); // unused dimension isn't used
+  DMDASetUniformCoordinates(da[0],0.0,xLength,0.0,yLength,0.0,1.0); // unused dimension isn't used
 
   DMDAGetElements( da[0], &lElNum, &lNodeNum, &e_n_graph );
   elCount = (int)lElNum;
-
-  int ijk[3], widths[3], rank;
-  MPI_Comm_rank(PETSC_COMM_WORLD,&rank);
-  DMDAGetCorners(da[0],&ijk[0],&ijk[1],&ijk[2],&widths[0],&widths[1],&widths[2]);
-  PetscSynchronizedPrintf(PETSC_COMM_WORLD, "I'm %d: I have %d local elements\n", rank, lElNum);
-  PetscSynchronizedFlush(PETSC_COMM_WORLD, NULL);
 
   printf("Building mesh\n");
   lengthXYZ[0] = xLength;
@@ -40,8 +34,8 @@ Mesh::Mesh( DM* input_da, int elResX, int elResY, double xLength, double yLength
 
   elNodeArray = new int* [elCount];
   for( el_I = 0 ; el_I < elCount ; el_I++ ) {
-    elNodeArray[el_I] = new int[nodesPerEl];
-    memset( elNodeArray[el_I], 0, nodesPerEl*sizeof(int) );
+    elNodeArray[el_I] = new int[lNodeNum];
+    memcpy( elNodeArray[el_I], &e_n_graph[lNodeNum*el_I], lNodeNum*sizeof(int) );
   }
 
   /* build element node table; ordering
@@ -50,14 +44,6 @@ Mesh::Mesh( DM* input_da, int elResX, int elResY, double xLength, double yLength
    * |        |
    * 0 ------ 1
    */
-  for( el_j = 0 ; el_j < gElCountXYZ[1] ; el_j++ ) {
-    for( el_i = 0 ; el_i < gElCountXYZ[0] ; el_i++ ) {
-      elNodeArray[el_i+el_j*gElCountXYZ[0]][0] = ( el_j*gNodeCountXYZ[0] + el_i );
-      elNodeArray[el_i+el_j*gElCountXYZ[0]][1] = ( el_j*gNodeCountXYZ[0] + el_i+1 );
-      elNodeArray[el_i+el_j*gElCountXYZ[0]][3] = ( (el_j+1)*gNodeCountXYZ[0] + el_i );
-      elNodeArray[el_i+el_j*gElCountXYZ[0]][2] = ( (el_j+1)*gNodeCountXYZ[0] + el_i+1 );
-    }
-  }
 
   /* build gaussPoints */
   int g_i;
@@ -159,11 +145,17 @@ void Mesh::GaussPointCoord( const int part_I, double **coord ) {
 }
 
 int Mesh::GetLocalElementSize() {
-  return local_elements;
+  return elCount;
 }
 
 int Mesh::GetElementNodes(int elID, int *list) {
-  memcpy( list, elNodeArray[elID], sizeof(int)*nodesPerEl );
+  // const PetscInt *e_n_graph;
+  // PetscInt lNodeNum, lElNum;
+  // DMDAGetElements( da[0], &lElNum, &lNodeNum, &e_n_graph );
+  // memcpy( list, &e_n_graph[lNodeNum*elID], sizeof(int)*lNodeNum );
+  // DMDARestoreElements( da[0], &lElNum, &lNodeNum, &e_n_graph );
+  
+  memcpy( list, elNodeArray[elID], 4*sizeof(int) );
   return 0;
 }
 
@@ -210,15 +202,25 @@ void Mesh::Evaluate_GNxFunc( const double *pos, const int elID, double GNx[][4],
   /** get the local derivative of this position */
   Evaluate_dNxFunc( pos, GNi );
   
-
+  
+  const PetscInt *e_n_graph;
+  PetscInt lNodeNum, lElNum;
+  DMDAGetElements( da[0], &lElNum, &lNodeNum, &e_n_graph );
+  ISLocalToGlobalMapping ltogm;
+  const PetscInt *array;
+  DMGetLocalToGlobalMapping(da[0], &ltogm);
+  ISLocalToGlobalMappingGetIndices(ltogm,&array);
+  
   for( node_I = 0 ; node_I < nodesPerEl ; node_I++ ) {
-    NodeCoords( elNodeArray[elID][node_I],  nodeCoord);
+    // get the global id
+    NodeCoords( e_n_graph[4*elID+node_I],  nodeCoord);
     jac[0][0] += ( GNi[0][node_I]*nodeCoord[0] );
     jac[0][1] += ( GNi[0][node_I]*nodeCoord[1] );
 
     jac[1][0] += ( GNi[1][node_I]*nodeCoord[0] );
     jac[1][1] += ( GNi[1][node_I]*nodeCoord[1] );
   }
+  DMDARestoreElements( da[0], &lElNum, &lNodeNum, &e_n_graph );
   /** calculate detJac */
   D = jac[0][0]*jac[1][1] - jac[0][1]*jac[1][0];
   *detJac = D;
@@ -249,22 +251,24 @@ void Mesh::Evaluate_GNxFunc( const double *pos, const int elID, double GNx[][4],
 
 bool Mesh::NodeCoords( const int gNodeID, double *pos ) {
   PetscInt low,high,lind, dim;
-  Vec nodeCoords;
+  Vec *nodeCoords;
 
   /* Idea to use petsc vectors for node coordinates.
   Check if the global idea is on local proc. If so get coords
   VERY SLOW IMPLEMENTATION
   */
   GetDim( &dim );
-  DMGetCoordinates(*da,&nodeCoords);
-  VecGetOwnershipRange(nodeCoords, &low, &high );
-  if( gNodeID < low || gNodeID > high ) return false;
+  
+  // Only has "local" nodeCoords 
+  DMGetCoordinatesLocal(*da, nodeCoords);
+  // VecGetOwnershipRange(nodeCoords, &low, &high );
+  // if( gNodeID < low || gNodeID > high ) return false;
 
   PetscScalar *coords;
-  VecGetArray(nodeCoords, &coords);
+  VecGetArray(*nodeCoords, &coords);
 
   memcpy( pos, &coords[dim*gNodeID], sizeof(double)*dim );
-  VecRestoreArray(nodeCoords, &coords);
+  VecRestoreArray(*nodeCoords, &coords);
   return true;
 
 
