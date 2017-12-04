@@ -1,4 +1,5 @@
 include /usr/local/petsc-3.8.0/lib/petsc/conf/variables
+# include /usr/lib/petsc/lib/petsc/conf/petscvariables - DOESN'T WORK
 
 CFLAGS = ${PETSC_CC_INCLUDES} ${CXX_FLAGS} ${CXXFLAGS} ${CCPPFLAGS}  ${PSOURCECXX}
 CC = ${CXX}
