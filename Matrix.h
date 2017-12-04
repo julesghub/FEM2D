@@ -4,7 +4,7 @@
 
 class Matrix {
 	public:
-	Matrix(Mesh*, Field*, char []);
+	Matrix(Mesh*, Field*, const char*);
 	~Matrix();;
 	void Print();
 	void assembleLocalMassMatrix( int el_ID, double *M);

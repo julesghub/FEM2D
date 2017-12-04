@@ -2,9 +2,9 @@
 #include "Field.h"
 #include "Matrix.h"
 
-Matrix::Matrix(Mesh *inputMesh, Field *inputField, char inputString[]) {
+Matrix::Matrix(Mesh *inputMesh, Field *inputField, const char inputString[]) {
   printf("Building Matrix\n");
-  int totalSize, dofPerNode, nodeRes[3];
+  int dofPerNode, nodeRes[3];
 
   field = inputField;
   mesh = inputMesh;
@@ -21,7 +21,6 @@ Matrix::Matrix(Mesh *inputMesh, Field *inputField, char inputString[]) {
   dof[1] = nodeRes[1]*dofPerNode;
   dof[2] = nodeRes[2]*dofPerNode;
 
-  totalSize = dof[0]*dof[1];
 }
 
 Matrix::~Matrix() {
@@ -107,7 +106,7 @@ void Matrix::assembleLaplacian( int el_ID, double *M ) {
     for( i = 0 ; i < nodesPerEl ; i++ ) {
       for( j = 0 ; j < nodesPerEl ; j++ ) {
         for( int dim_I = 0 ; dim_I < dim ; dim_I++ ) {
-          A[i][j] += detJac*GNx[dim_I][i]*GNx[dim_I][j];
+          A[i][j] -= detJac*GNx[dim_I][i]*GNx[dim_I][j];
         }
       }
     }

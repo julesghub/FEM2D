@@ -37,7 +37,7 @@ class Mesh {
   /** dNi_dx: local shape function derivs */
   void Evaluate_dNxFunc(  const double *pos, double dNi_dx[][4] );
   void Evaluate_GNxFunc( const double *pos, const int elID, double GNx[][4], double *detJac );
-  bool NodeCoords( const int gNodeID, double *pos );
+  bool NodeCoords( const int nodeID, double *pos );
 	/** ijk mapping to global node id */
   int NodeMap_ijk2g( const int *ijk, int *gID );
 

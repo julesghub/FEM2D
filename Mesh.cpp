@@ -1,7 +1,6 @@
 #include"Mesh.h"
 
 Mesh::Mesh( DM* input_da, int elResX, int elResY, double xLength, double yLength ) {
-  int el_i, el_j;
   int el_I;
   PetscInt lElNum, lNodeNum;
   const PetscInt* e_n_graph;
@@ -249,45 +248,22 @@ void Mesh::Evaluate_GNxFunc( const double *pos, const int elID, double GNx[][4],
   }
 }
 
-bool Mesh::NodeCoords( const int gNodeID, double *pos ) {
-  PetscInt low,high,lind, dim;
-  Vec *nodeCoords;
+bool Mesh::NodeCoords( const int ndoeId, double *pos ) {
+  PetscInt dim;
+  Vec nodeCoords;
 
-  /* Idea to use petsc vectors for node coordinates.
-  Check if the global idea is on local proc. If so get coords
-  VERY SLOW IMPLEMENTATION
-  */
   GetDim( &dim );
   
   // Only has "local" nodeCoords 
-  DMGetCoordinatesLocal(*da, nodeCoords);
-  // VecGetOwnershipRange(nodeCoords, &low, &high );
-  // if( gNodeID < low || gNodeID > high ) return false;
+  DMGetCoordinatesLocal(*da, &nodeCoords);
 
-  PetscScalar *coords;
-  VecGetArray(*nodeCoords, &coords);
+  PetscScalar *coords=NULL;
+  VecGetArray(nodeCoords, &coords);
 
-  memcpy( pos, &coords[dim*gNodeID], sizeof(double)*dim );
-  VecRestoreArray(*nodeCoords, &coords);
+  memcpy( pos, &coords[dim*ndoeId], sizeof(double)*dim );
+  VecRestoreArray(nodeCoords, &coords);
   return true;
 
-
-  // double sepXYZ[3];
-  // int ijk[3], totalNodes;
-  //
-  // /** get node seperations */
-  // sepXYZ[0] = lengthXYZ[0] / gElCountXYZ[0];
-  // sepXYZ[1] = lengthXYZ[1] / gElCountXYZ[1];
-  // sepXYZ[2] = 0;
-  //
-  // totalNodes = gNodeCountXYZ[0]*gNodeCountXYZ[1];
-  //
-  // /** get ijk parametrisation of nodes */
-  // ijk[0] = gNodeID % gNodeCountXYZ[0];
-  // ijk[1] = (int)gNodeID/gNodeCountXYZ[0];
-  //
-  // pos[0] = sepXYZ[0]*ijk[0];
-  // pos[1] = sepXYZ[1]*ijk[1];
 }
 
 int Mesh::NodeMap_ijk2g( const int *ijk, int *gID ) {
